@@ -600,17 +600,35 @@ echo $env:AWS_ACCESS_KEY_ID
 
 ### Passo 19: Criar Secret para ECR
 
+**⚠️ IMPORTANTE:** Para ECR, precisamos criar um secret do tipo `docker-registry` com token de autenticação.
+
 ```bash
-# Criar secret com credenciais AWS
-kubectl create secret generic ecr-credentials \
-  --from-literal=AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID \
-  --from-literal=AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY \
-  --from-literal=AWS_SESSION_TOKEN=$AWS_SESSION_TOKEN \
+# 1. Obter token de autenticação do ECR
+ECR_TOKEN=$(aws ecr get-login-password --region us-east-1 --profile fiapaws)
+ECR_REGISTRY="123456789012.dkr.ecr.us-east-1.amazonaws.com"
+
+# 2. Criar secret docker-registry
+kubectl create secret docker-registry ecr-credentials \
+  --docker-server=$ECR_REGISTRY \
+  --docker-username=AWS \
+  --docker-password=$ECR_TOKEN \
   -n flux-system
 
-# Verificar
+# 3. Verificar
 kubectl get secret ecr-credentials -n flux-system
 ```
+
+**Explicação:**
+- ECR usa autenticação diferente de registries normais
+- Token expira em 12 horas (renovar se necessário)
+- Username é sempre `AWS`
+- Password é o token obtido via `aws ecr get-login-password`
+
+**⚠️ Nota sobre Expiração:**
+O token do ECR expira em 12 horas. Para produção, considere usar:
+- **AWS IAM Roles for Service Accounts (IRSA)** - Recomendado
+- **External Secrets Operator** - Rotação automática
+- **Renovação manual** - Para testes
 
 ### Passo 20: Aplicar Image Automation
 
