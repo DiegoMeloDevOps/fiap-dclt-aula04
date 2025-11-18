@@ -447,6 +447,8 @@ EOF
 
 **O que faz:** Define qual tag usar (ex: sempre a mais recente)
 
+**⚠️ IMPORTANTE:** Como usamos short SHA (7 caracteres), precisamos usar `alphabetical` para pegar a tag mais recente.
+
 ```bash
 cat > gitops-repo/clusters/production/fiap-todo-api-imagepolicy.yaml << 'EOF'
 apiVersion: image.toolkit.fluxcd.io/v1beta2
@@ -457,14 +459,20 @@ metadata:
 spec:
   imageRepositoryRef:
     name: fiap-todo-api
+  filterTags:
+    pattern: '^[a-f0-9]{7}$'      # Regex: 7 caracteres hexadecimais (short SHA)
   policy:
-    semver:
-      range: '>=1.0.0'            # Usa tags semver >= 1.0.0
-    # OU para usar sempre latest:
-    # alphabetical:
-    #   order: asc
+    alphabetical:
+      order: asc                  # Pega a tag mais recente alfabeticamente
 EOF
+
+echo "✅ ImagePolicy criado!"
 ```
+
+**Explicação:**
+- `pattern: '^[a-f0-9]{7}$'` → Filtra apenas tags com 7 caracteres hex (short SHA)
+- `alphabetical: order: asc` → Pega a tag mais recente
+- FluxCD vai detectar tags como: `5605680`, `a1b2c3d`, etc.
 
 ### Passo 15: Criar ImageUpdateAutomation
 
