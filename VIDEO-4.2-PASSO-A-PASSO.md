@@ -170,7 +170,7 @@ jobs:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: ${{ github.sha }}
         run: |
-          docker build --platform linux/amd64 -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG ./app
+          docker build --platform linux/amd64 -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
           echo "✅ Image pushed: $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
       
@@ -447,7 +447,7 @@ jobs:
           ECR_REGISTRY: `${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: `${{ github.sha }}
         run: |
-          docker build --platform linux/amd64 -t `$ECR_REGISTRY/`$ECR_REPOSITORY:`$IMAGE_TAG ./app
+          docker build --platform linux/amd64 -t `$ECR_REGISTRY/`$ECR_REPOSITORY:`$IMAGE_TAG .
           docker push `$ECR_REGISTRY/`$ECR_REPOSITORY:`$IMAGE_TAG
           echo "✅ Image pushed: `$ECR_REGISTRY/`$ECR_REPOSITORY:`$IMAGE_TAG"
       
