@@ -424,7 +424,42 @@ FluxCD aplica no cluster
 Deploy automático! 🎉
 ```
 
-### Passo 13: Criar ImageRepository
+### Passo 13: Instalar Image Automation Controllers
+
+**⚠️ IMPORTANTE:** O bootstrap padrão do Flux NÃO inclui os controllers de Image Automation. Precisamos instalá-los manualmente!
+
+```bash
+# Instalar Image Automation controllers
+flux install \
+  --components=image-reflector-controller,image-automation-controller \
+  --export > /tmp/flux-image-automation.yaml
+
+kubectl apply -f /tmp/flux-image-automation.yaml
+
+# Aguardar pods ficarem prontos
+kubectl wait --for=condition=ready pod \
+  -l app=image-reflector-controller \
+  -n flux-system \
+  --timeout=2m
+
+kubectl wait --for=condition=ready pod \
+  -l app=image-automation-controller \
+  -n flux-system \
+  --timeout=2m
+
+# Verificar
+kubectl get pods -n flux-system | grep image
+
+# Deve mostrar:
+# image-automation-controller-xxx    1/1     Running
+# image-reflector-controller-xxx     1/1     Running
+```
+
+**Explicação:**
+- `image-reflector-controller` → Monitora registries (ECR, Docker Hub)
+- `image-automation-controller` → Atualiza Git automaticamente
+
+### Passo 14: Criar ImageRepository
 
 **O que faz:** Monitora o ECR para novas imagens
 
@@ -443,7 +478,7 @@ spec:
 EOF
 ```
 
-### Passo 14: Criar ImagePolicy
+### Passo 15: Criar ImagePolicy
 
 **O que faz:** Define qual tag usar (ex: sempre a mais recente)
 
@@ -474,7 +509,7 @@ echo "✅ ImagePolicy criado!"
 - `alphabetical: order: asc` → Pega a tag mais recente
 - FluxCD vai detectar tags como: `5605680`, `a1b2c3d`, etc.
 
-### Passo 15: Criar ImageUpdateAutomation
+### Passo 16: Criar ImageUpdateAutomation
 
 **O que faz:** Atualiza o Git automaticamente
 
@@ -507,7 +542,7 @@ spec:
 EOF
 ```
 
-### Passo 16: Adicionar Marker no Kustomization
+### Passo 17: Adicionar Marker no Kustomization
 
 **Editar:** `gitops-repo/applications/fiap-todo-api/overlays/production/kustomization.yaml`
 
@@ -531,7 +566,7 @@ images:
 - FluxCD vai substituir `v1.0.0` pela tag mais recente do ECR
 - Commit automático no Git
 
-### Passo 17: Exportar Credenciais AWS
+### Passo 18: Exportar Credenciais AWS
 
 **⚠️ IMPORTANTE:** Você precisa das credenciais AWS do Learner Lab!
 
@@ -563,7 +598,7 @@ $env:AWS_SESSION_TOKEN = "..."
 echo $env:AWS_ACCESS_KEY_ID
 ```
 
-### Passo 18: Criar Secret para ECR
+### Passo 19: Criar Secret para ECR
 
 ```bash
 # Criar secret com credenciais AWS
@@ -577,7 +612,7 @@ kubectl create secret generic ecr-credentials \
 kubectl get secret ecr-credentials -n flux-system
 ```
 
-### Passo 19: Aplicar Image Automation
+### Passo 20: Aplicar Image Automation
 
 ```bash
 # Aplicar todas as configs
@@ -596,7 +631,7 @@ flux logs --follow
 
 ## 🎯 Parte 7: Testar Fluxo Completo
 
-### Passo 20: Fazer Deploy de Nova Versão
+### Passo 21: Fazer Deploy de Nova Versão
 
 ```bash
 # 1. Fazer mudança no código
@@ -621,7 +656,7 @@ git push origin main
 flux logs --follow
 ```
 
-### Passo 21: Verificar Deployment
+### Passo 22: Verificar Deployment
 
 ```bash
 # Ver pods sendo atualizados
