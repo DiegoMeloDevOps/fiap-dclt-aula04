@@ -61,9 +61,488 @@ graph LR
 
 ---
 
-## 🔄 Parte 2: Pipeline de Build
+## 🔄 Parte 2: Criar Estrutura GitHub Actions
 
-### Passo 2: Ver Workflow Docker Build
+### Passo 2: Criar Diretórios e Arquivos
+
+**Linux / macOS:**
+```bash
+# Navegar para o diretório do projeto
+cd fiap-dclt-aula04
+
+# Criar estrutura de diretórios
+mkdir -p .github/workflows
+
+# Criar arquivo docker-build.yml
+cat > .github/workflows/docker-build.yml << 'EOF'
+name: 🐳 Build and Push Docker Image
+
+on:
+  push:
+    branches: [ main ]
+    paths: 
+      - 'app/**'
+  workflow_dispatch:
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REPOSITORY: fiap-todo-api
+
+jobs:
+  build:
+    name: 🏗️ Build and Push
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: 📥 Checkout código
+        uses: actions/checkout@v4
+      
+      - name: 🔑 Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ env.AWS_REGION }}
+      
+      - name: 🔐 Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+      
+      - name: 🐳 Build, tag, and push image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG ./app
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          echo "✅ Image pushed: $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+      
+      - name: 📊 Summary
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          echo "## 🐳 Docker Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Image:** \`$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Status:** ✅ Built and Pushed" >> $GITHUB_STEP_SUMMARY
+EOF
+
+# Criar arquivo update-image.yml
+cat > .github/workflows/update-image.yml << 'EOF'
+name: 🔄 Update Image Tag in GitOps Repo
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: 'New image tag to deploy'
+        required: true
+        type: string
+      environment:
+        description: 'Target environment'
+        required: true
+        type: choice
+        options:
+          - production
+
+jobs:
+  update-gitops-repo:
+    name: 📝 Update GitOps Repository
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: 📥 Checkout código
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: 🔧 Setup Kustomize
+        run: |
+          curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
+          sudo mv kustomize /usr/local/bin/
+      
+      - name: 📝 Update image tag
+        run: |
+          cd gitops-repo/applications/fiap-todo-api/overlays/${{ inputs.environment }}
+          
+          # Update image tag in kustomization.yaml
+          kustomize edit set image \
+            fiap-todo-api=YOUR_ECR_URI/fiap-todo-api:${{ inputs.image_tag }}
+          
+          echo "✅ Updated image tag to: ${{ inputs.image_tag }}"
+      
+      - name: 💾 Commit and push changes
+        run: |
+          git config user.name "GitHub Actions Bot"
+          git config user.email "actions@github.com"
+          
+          git add gitops-repo/applications/fiap-todo-api/overlays/${{ inputs.environment }}/kustomization.yaml
+          
+          git commit -m "🚀 Update ${{ inputs.environment }} image to ${{ inputs.image_tag }}"
+          
+          git push origin main
+      
+      - name: 📊 Summary
+        run: |
+          echo "## 🚀 GitOps Update Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** ${{ inputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "**New Image Tag:** ${{ inputs.image_tag }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Status:** ✅ Updated" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "ArgoCD will automatically sync this change." >> $GITHUB_STEP_SUMMARY
+EOF
+
+# Criar arquivo argocd-sync.yml
+cat > .github/workflows/argocd-sync.yml << 'EOF'
+name: 🔄 ArgoCD GitOps Sync
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'gitops-repo/**'
+  workflow_dispatch:
+
+env:
+  ARGOCD_SERVER: 'localhost:8080'
+  ARGOCD_APP_NAME: 'fiap-todo-api'
+
+jobs:
+  validate-manifests:
+    name: ✅ Validate Kubernetes Manifests
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: 📥 Checkout código
+        uses: actions/checkout@v4
+      
+      - name: 🔧 Setup Kustomize
+        run: |
+          curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
+          sudo mv kustomize /usr/local/bin/
+      
+      - name: ✅ Validate Kustomize
+        run: |
+          cd gitops-repo/applications/fiap-todo-api/overlays/production
+          kustomize build . > /tmp/manifests.yaml
+          echo "✅ Kustomize build successful"
+      
+      - name: 🔍 Validate YAML
+        run: |
+          pip install yamllint
+          find gitops-repo -name "*.yaml" -o -name "*.yml" | xargs yamllint -d relaxed
+
+  argocd-sync:
+    name: 🚀 Sync ArgoCD Application
+    runs-on: ubuntu-latest
+    needs: validate-manifests
+    if: github.event_name == 'workflow_dispatch'
+    
+    steps:
+      - name: 📥 Checkout código
+        uses: actions/checkout@v4
+      
+      - name: 🔧 Install ArgoCD CLI
+        run: |
+          curl -sSL -o argocd-linux-amd64 https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
+          sudo install -m 555 argocd-linux-amd64 /usr/local/bin/argocd
+          rm argocd-linux-amd64
+      
+      - name: 🔑 Login to ArgoCD
+        run: |
+          argocd login ${{ env.ARGOCD_SERVER }} \
+            --username admin \
+            --password ${{ secrets.ARGOCD_PASSWORD }} \
+            --insecure
+      
+      - name: 🔄 Sync Application
+        run: |
+          echo "🔄 Syncing ArgoCD application: ${{ env.ARGOCD_APP_NAME }}"
+          
+          argocd app sync ${{ env.ARGOCD_APP_NAME }} \
+            --prune \
+            --timeout 300
+      
+      - name: ⏳ Wait for Sync
+        run: |
+          echo "⏳ Waiting for application to be healthy..."
+          
+          argocd app wait ${{ env.ARGOCD_APP_NAME }} \
+            --health \
+            --timeout 300
+      
+      - name: 📊 Get Application Status
+        run: |
+          echo "📊 Application Status:"
+          argocd app get ${{ env.ARGOCD_APP_NAME }}
+          
+          echo "## 🚀 ArgoCD Sync Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Application:** ${{ env.ARGOCD_APP_NAME }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Status:** ✅ Synced and Healthy" >> $GITHUB_STEP_SUMMARY
+EOF
+
+echo "✅ Arquivos GitHub Actions criados com sucesso!"
+```
+
+**Windows (PowerShell):**
+```powershell
+# Navegar para o diretório do projeto
+cd fiap-dclt-aula04
+
+# Criar estrutura de diretórios
+New-Item -ItemType Directory -Force -Path .github\workflows
+
+# Criar arquivo docker-build.yml
+@"
+name: 🐳 Build and Push Docker Image
+
+on:
+  push:
+    branches: [ main ]
+    paths: 
+      - 'app/**'
+  workflow_dispatch:
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REPOSITORY: fiap-todo-api
+
+jobs:
+  build:
+    name: 🏗️ Build and Push
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: 📥 Checkout código
+        uses: actions/checkout@v4
+      
+      - name: 🔑 Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: `${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: `${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: `${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: `${{ env.AWS_REGION }}
+      
+      - name: 🔐 Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+      
+      - name: 🐳 Build, tag, and push image
+        env:
+          ECR_REGISTRY: `${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: `${{ github.sha }}
+        run: |
+          docker build -t `$ECR_REGISTRY/`$ECR_REPOSITORY:`$IMAGE_TAG ./app
+          docker push `$ECR_REGISTRY/`$ECR_REPOSITORY:`$IMAGE_TAG
+          echo "✅ Image pushed: `$ECR_REGISTRY/`$ECR_REPOSITORY:`$IMAGE_TAG"
+      
+      - name: 📊 Summary
+        env:
+          ECR_REGISTRY: `${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: `${{ github.sha }}
+        run: |
+          echo "## 🐳 Docker Build Summary" >> `$GITHUB_STEP_SUMMARY
+          echo "" >> `$GITHUB_STEP_SUMMARY
+          echo "**Image:** \``$ECR_REGISTRY/`$ECR_REPOSITORY:`$IMAGE_TAG\`" >> `$GITHUB_STEP_SUMMARY
+          echo "**Status:** ✅ Built and Pushed" >> `$GITHUB_STEP_SUMMARY
+"@ | Out-File -FilePath .github\workflows\docker-build.yml -Encoding UTF8
+
+# Criar arquivo update-image.yml
+@"
+name: 🔄 Update Image Tag in GitOps Repo
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: 'New image tag to deploy'
+        required: true
+        type: string
+      environment:
+        description: 'Target environment'
+        required: true
+        type: choice
+        options:
+          - production
+
+jobs:
+  update-gitops-repo:
+    name: 📝 Update GitOps Repository
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: 📥 Checkout código
+        uses: actions/checkout@v4
+        with:
+          token: `${{ secrets.GITHUB_TOKEN }}
+      
+      - name: 🔧 Setup Kustomize
+        run: |
+          curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
+          sudo mv kustomize /usr/local/bin/
+      
+      - name: 📝 Update image tag
+        run: |
+          cd gitops-repo/applications/fiap-todo-api/overlays/`${{ inputs.environment }}
+          
+          # Update image tag in kustomization.yaml
+          kustomize edit set image \
+            fiap-todo-api=YOUR_ECR_URI/fiap-todo-api:`${{ inputs.image_tag }}
+          
+          echo "✅ Updated image tag to: `${{ inputs.image_tag }}"
+      
+      - name: 💾 Commit and push changes
+        run: |
+          git config user.name "GitHub Actions Bot"
+          git config user.email "actions@github.com"
+          
+          git add gitops-repo/applications/fiap-todo-api/overlays/`${{ inputs.environment }}/kustomization.yaml
+          
+          git commit -m "🚀 Update `${{ inputs.environment }} image to `${{ inputs.image_tag }}"
+          
+          git push origin main
+      
+      - name: 📊 Summary
+        run: |
+          echo "## 🚀 GitOps Update Summary" >> `$GITHUB_STEP_SUMMARY
+          echo "" >> `$GITHUB_STEP_SUMMARY
+          echo "**Environment:** `${{ inputs.environment }}" >> `$GITHUB_STEP_SUMMARY
+          echo "**New Image Tag:** `${{ inputs.image_tag }}" >> `$GITHUB_STEP_SUMMARY
+          echo "**Status:** ✅ Updated" >> `$GITHUB_STEP_SUMMARY
+          echo "" >> `$GITHUB_STEP_SUMMARY
+          echo "ArgoCD will automatically sync this change." >> `$GITHUB_STEP_SUMMARY
+"@ | Out-File -FilePath .github\workflows\update-image.yml -Encoding UTF8
+
+# Criar arquivo argocd-sync.yml
+@"
+name: 🔄 ArgoCD GitOps Sync
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'gitops-repo/**'
+  workflow_dispatch:
+
+env:
+  ARGOCD_SERVER: 'localhost:8080'
+  ARGOCD_APP_NAME: 'fiap-todo-api'
+
+jobs:
+  validate-manifests:
+    name: ✅ Validate Kubernetes Manifests
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: 📥 Checkout código
+        uses: actions/checkout@v4
+      
+      - name: 🔧 Setup Kustomize
+        run: |
+          curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
+          sudo mv kustomize /usr/local/bin/
+      
+      - name: ✅ Validate Kustomize
+        run: |
+          cd gitops-repo/applications/fiap-todo-api/overlays/production
+          kustomize build . > /tmp/manifests.yaml
+          echo "✅ Kustomize build successful"
+      
+      - name: 🔍 Validate YAML
+        run: |
+          pip install yamllint
+          find gitops-repo -name "*.yaml" -o -name "*.yml" | xargs yamllint -d relaxed
+
+  argocd-sync:
+    name: 🚀 Sync ArgoCD Application
+    runs-on: ubuntu-latest
+    needs: validate-manifests
+    if: github.event_name == 'workflow_dispatch'
+    
+    steps:
+      - name: 📥 Checkout código
+        uses: actions/checkout@v4
+      
+      - name: 🔧 Install ArgoCD CLI
+        run: |
+          curl -sSL -o argocd-linux-amd64 https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
+          sudo install -m 555 argocd-linux-amd64 /usr/local/bin/argocd
+          rm argocd-linux-amd64
+      
+      - name: 🔑 Login to ArgoCD
+        run: |
+          argocd login `${{ env.ARGOCD_SERVER }} \
+            --username admin \
+            --password `${{ secrets.ARGOCD_PASSWORD }} \
+            --insecure
+      
+      - name: 🔄 Sync Application
+        run: |
+          echo "🔄 Syncing ArgoCD application: `${{ env.ARGOCD_APP_NAME }}"
+          
+          argocd app sync `${{ env.ARGOCD_APP_NAME }} \
+            --prune \
+            --timeout 300
+      
+      - name: ⏳ Wait for Sync
+        run: |
+          echo "⏳ Waiting for application to be healthy..."
+          
+          argocd app wait `${{ env.ARGOCD_APP_NAME }} \
+            --health \
+            --timeout 300
+      
+      - name: 📊 Get Application Status
+        run: |
+          echo "📊 Application Status:"
+          argocd app get `${{ env.ARGOCD_APP_NAME }}
+          
+          echo "## 🚀 ArgoCD Sync Summary" >> `$GITHUB_STEP_SUMMARY
+          echo "" >> `$GITHUB_STEP_SUMMARY
+          echo "**Application:** `${{ env.ARGOCD_APP_NAME }}" >> `$GITHUB_STEP_SUMMARY
+          echo "**Status:** ✅ Synced and Healthy" >> `$GITHUB_STEP_SUMMARY
+"@ | Out-File -FilePath .github\workflows\argocd-sync.yml -Encoding UTF8
+
+Write-Host "✅ Arquivos GitHub Actions criados com sucesso!" -ForegroundColor Green
+```
+
+### Passo 3: Verificar Arquivos Criados
+
+```bash
+# Ver estrutura criada
+tree .github/
+
+# Listar arquivos
+ls -la .github/workflows/
+
+# Verificar conteúdo (exemplo)
+cat .github/workflows/docker-build.yml
+```
+
+---
+
+## 📝 Parte 3: Configurar Secrets no GitHub
+
+### Passo 4: Adicionar AWS Credentials
+
+No GitHub, vá em: **Settings** → **Secrets and variables** → **Actions** → **New repository secret**
+
+Adicione os seguintes secrets:
+- `AWS_ACCESS_KEY_ID`
+- `AWS_SECRET_ACCESS_KEY`
+- `AWS_SESSION_TOKEN` (para AWS Learner Lab)
+- `ARGOCD_PASSWORD` (senha do ArgoCD admin)
+
+---
+
+## 🔄 Parte 4: Pipeline de Build
+
+### Passo 5: Ver Workflow Docker Build
 
 ```bash
 cd ~/fiap-cicd-handson/aula-04
