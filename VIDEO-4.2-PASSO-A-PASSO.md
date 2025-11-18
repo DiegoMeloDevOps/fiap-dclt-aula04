@@ -6,6 +6,17 @@
 
 ---
 
+## ⚠️ Pré-requisitos
+
+**IMPORTANTE**: Este vídeo assume que você já tem:
+- ✅ Cluster EKS `cicd-lab` criado (Vídeo 4.1 - Passo 2)
+- ✅ ArgoCD instalado e configurado (Vídeo 4.1)
+- ✅ kubectl configurado com acesso ao cluster
+
+Se ainda não criou o cluster, volte ao **Vídeo 4.1 - Passo 2**.
+
+---
+
 ## 📚 Parte 1: Conceito CI/CD + GitOps
 
 ### Passo 1: Fluxo Completo CI/CD + GitOps

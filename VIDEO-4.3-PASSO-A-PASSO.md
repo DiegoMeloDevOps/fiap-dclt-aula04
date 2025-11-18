@@ -6,6 +6,17 @@
 
 ---
 
+## ⚠️ Pré-requisitos
+
+**IMPORTANTE**: Este vídeo assume que você já tem:
+- ✅ Cluster EKS `cicd-lab` criado (Vídeo 4.1 - Passo 2)
+- ✅ kubectl configurado com acesso ao cluster
+- ✅ Conhecimento de ArgoCD (Vídeos 4.1 e 4.2)
+
+Se ainda não criou o cluster, volte ao **Vídeo 4.1 - Passo 2**.
+
+---
+
 ## 📚 Parte 1: Conceito FluxCD
 
 ### Passo 1: O que é FluxCD?
@@ -458,8 +469,33 @@ kubectl delete namespace argocd
 kubectl delete namespace fiap-todo-prod
 kubectl delete namespace fiap-todo-flux
 
-# Deletar cluster (se não for usar mais)
-eksctl delete cluster --name fiap-gitops-cluster --region us-east-1
+# Deletar node group primeiro
+aws eks delete-nodegroup \
+  --cluster-name cicd-lab \
+  --nodegroup-name workers \
+  --region us-east-1 \
+  --profile fiapaws
+
+# Aguardar node group ser deletado
+aws eks wait nodegroup-deleted \
+  --cluster-name cicd-lab \
+  --nodegroup-name workers \
+  --region us-east-1 \
+  --profile fiapaws
+
+# Deletar cluster
+aws eks delete-cluster \
+  --name cicd-lab \
+  --region us-east-1 \
+  --profile fiapaws
+
+# Aguardar cluster ser deletado
+aws eks wait cluster-deleted \
+  --name cicd-lab \
+  --region us-east-1 \
+  --profile fiapaws
+
+echo "✅ Cluster deletado com sucesso!"
 ```
 
 ---

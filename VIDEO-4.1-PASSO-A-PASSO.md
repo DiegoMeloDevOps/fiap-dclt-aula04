@@ -45,19 +45,75 @@ graph TB
 
 ## ⚙️ Parte 2: Setup ArgoCD
 
-### Passo 2: Verificar Cluster
+### Passo 2: Criar Cluster EKS
 
 ```bash
-# Verificar se cluster existe
-kubectl get nodes
+# Verificar credenciais AWS
+aws sts get-caller-identity --profile fiapaws
 
-# Se não existir, criar cluster EKS
-eksctl create cluster \
-  --name fiap-gitops-cluster \
+# Obter Account ID
+ACCOUNT_ID=$(aws sts get-caller-identity --profile fiapaws --query Account --output text)
+
+# Discovery automático de subnets (excluindo us-east-1e)
+SUBNET_IDS=$(aws ec2 describe-subnets \
+  --profile fiapaws \
   --region us-east-1 \
+  --filters "Name=map-public-ip-on-launch,Values=true" \
+  --query 'Subnets[?AvailabilityZone!=`us-east-1e`].SubnetId' \
+  --output text | tr '\t' ',')
+
+echo "Subnets descobertas: $SUBNET_IDS"
+
+# Criar cluster EKS
+aws eks create-cluster \
+  --name cicd-lab \
+  --region us-east-1 \
+  --role-arn arn:aws:iam::${ACCOUNT_ID}:role/LabRole \
+  --resources-vpc-config subnetIds=${SUBNET_IDS} \
+  --profile fiapaws
+
+# Aguardar cluster ficar ativo (15-20 minutos)
+echo "⏳ Aguardando cluster ficar ativo..."
+aws eks wait cluster-active \
+  --name cicd-lab \
+  --region us-east-1 \
+  --profile fiapaws
+
+# Discovery de subnets para node group
+SUBNET_IDS_SPACE=$(aws ec2 describe-subnets \
+  --profile fiapaws \
+  --region us-east-1 \
+  --filters "Name=map-public-ip-on-launch,Values=true" \
+  --query 'Subnets[?AvailabilityZone!=`us-east-1e`].SubnetId' \
+  --output text)
+
+# Criar node group
+aws eks create-nodegroup \
+  --cluster-name cicd-lab \
   --nodegroup-name workers \
-  --node-type t3.medium \
-  --nodes 2
+  --node-role arn:aws:iam::${ACCOUNT_ID}:role/LabRole \
+  --subnets $SUBNET_IDS_SPACE \
+  --instance-types t3.medium \
+  --scaling-config minSize=2,maxSize=2,desiredSize=2 \
+  --region us-east-1 \
+  --profile fiapaws
+
+# Aguardar node group ficar ativo
+echo "⏳ Aguardando node group ficar ativo..."
+aws eks wait nodegroup-active \
+  --cluster-name cicd-lab \
+  --nodegroup-name workers \
+  --region us-east-1 \
+  --profile fiapaws
+
+# Configurar kubectl
+aws eks update-kubeconfig \
+  --name cicd-lab \
+  --region us-east-1 \
+  --profile fiapaws
+
+# Verificar nodes
+kubectl get nodes
 ```
 
 ### Passo 3: Instalar ArgoCD
