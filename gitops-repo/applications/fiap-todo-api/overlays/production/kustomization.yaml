@@ -13,6 +13,8 @@ commonLabels:
   environment: production
 
 images:
-- name: fiap-todo-api
+- name: fiap-todo-api:v1.0.0
   newName: 197890406314.dkr.ecr.us-east-1.amazonaws.com/fiap-todo-api
-  newTag: a147911e52c88411f53ee98c2726f824dee705fa
+  newTag: 7ffcd888345fe2e81e6777200195e0bdae9e25f4
+
+
