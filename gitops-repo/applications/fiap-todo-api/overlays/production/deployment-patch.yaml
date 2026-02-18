@@ -3,7 +3,7 @@ kind: Deployment
 metadata:
   name: fiap-todo-api
 spec:
-  replicas: 3  # Era 3, agora 5!
+  replicas: 5  # Era 3, agora 5!
   template:
     spec:
       containers:
