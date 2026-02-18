@@ -9,7 +9,7 @@ const app = express();
 app.use(helmet());
 app.use(cors());
 
-// Rate limiting
+// Rate limiting do app
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutos
   max: 100 // máximo 100 requests por IP
